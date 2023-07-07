@@ -9,6 +9,7 @@
  *  1.1.1 (09/16/2021) - Fixed bug that would throw an error if LED parameter wasn't set in preferences.
  *  1.2.0 (09/21/2021) - Moved wakeup interval setting to the end of updates, and changed delay from 300 to 500ms to try and make updating the config more reliable. 
  *  1.2.1 (09/22/2021) - Changed DebugLogging command to not have a blank field as 1st enum to fix rendering issues
+ *  1.2.2 (07/07/2023) - Fix for the null values of inClusters and secureInClusters in updated().
  */
 
 import groovy.transform.Field
@@ -287,7 +288,10 @@ def updated() {
     if (state.lastUpdated && now() <= state.lastUpdated + 3000) return
     state.lastUpdated = now()
 
-	if (getDataValue("inClusters").contains("0x80") || getDataValue("secureInClusters").contains("0x80")) {
+	String inClusters = getDataValue("inClusters")
+	String secureInClusters = getDataValue("secureInClusters")
+
+	if (inClusters != null && inClusters.contains("0x80") || secureInClusters != null && secureInClusters.contains("0x80")) {
 		state.queuedConfig = true
 	} else {
 		state.queuedConfig = false
