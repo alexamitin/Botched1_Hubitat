@@ -1,7 +1,7 @@
 /**
  *  IMPORT URL: https://raw.githubusercontent.com/Botched1/Hubitat/master/Drivers/GE-Jasco%20Z-Wave%20Plus%20Dimmer/GE-Jasco%20Z-Wave%20Plus%20Dimmer.groovy
  *
- *  GE Z-Wave Plus Dimmer
+ *  GE Jasco Z-Wave Plus Dimmer
  *
  *
  *  Original based off of the Dimmer Switch under Templates in the IDE 
@@ -31,10 +31,12 @@
  *  2.8.0 (09/10/2022) - Fixed issues with digital on/off reporting (no functional change), removed PushableButton capability, made digital doubletap commands create events.
  *  2.8.1 (09/12/2022) - Re-added PushableButton capability, as it broke things I didn't consder
  *  2.9.0 (03/27/2023) - Fixed setLevel duration conversion, thanks to user jpt1081 on hubitat forum for the idea/example code
+ *  2.9.1 (07/07/2023) - Added SupervisionGet, tripple button clicks, FirmwareMdReport. Renamed driver to GE Jasco Z-Wave Plus Dimmer.
+ *  2.9.2 (07/07/2023) - Improved digital and physical reporting for ON, OFF actions.
 */
 
 metadata {
-	definition (name: "GE Z-Wave Plus Dimmer", namespace: "Botched1", author: "Jason Bottjen") {
+	definition (name: "GE Jasco Z-Wave Plus Dimmer", namespace: "Botched1", author: "Jason Bottjen") {
 		capability "Actuator"
 		capability "PushableButton"
 		capability "DoubleTapableButton"
@@ -45,20 +47,20 @@ metadata {
 		capability "Switch Level"
 		capability "Light"
 		
-        fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.26", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
-	fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.27", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
-	fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.28", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
-	fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.29", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
-        fingerprint mfr:"0063", prod:"4944", model:"3039", ver: "5.19", deviceJoinName: "GE Z-Wave Plus 1000W Wall Dimmer"
-        fingerprint mfr:"0063", prod:"4944", model:"3130", ver: "5.21", deviceJoinName: "GE Z-Wave Plus Toggle Dimmer"
-        fingerprint mfr:"0063", prod:"4944", model:"3135", ver: "5.26", deviceJoinName: "Jasco Z-Wave Plus Wall Dimmer"
-        fingerprint mfr:"0063", prod:"4944", model:"3136", ver: "5.21", deviceJoinName: "Jasco Z-Wave Plus 1000W Wall Dimmer"
-        fingerprint mfr:"0063", prod:"4944", model:"3137", ver: "5.20", deviceJoinName: "Jasco Z-Wave Plus Toggle Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.26", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.27", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.28", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3038", ver: "5.29", deviceJoinName: "GE Z-Wave Plus Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3039", ver: "5.19", deviceJoinName: "GE Z-Wave Plus 1000W Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3130", ver: "5.21", deviceJoinName: "GE Z-Wave Plus Toggle Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3135", ver: "5.26", deviceJoinName: "Jasco Z-Wave Plus Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3136", ver: "5.21", deviceJoinName: "Jasco Z-Wave Plus 1000W Wall Dimmer"
+		fingerprint mfr:"0063", prod:"4944", model:"3137", ver: "5.20", deviceJoinName: "Jasco Z-Wave Plus Toggle Dimmer"
 	}
 
- preferences {
+ 	preferences {
 
-	        input (
+		input (
             type: "paragraph",
             element: "paragraph",
             title: "Dimmer General Settings",
@@ -178,6 +180,14 @@ def zwaveEvent(hubitat.zwave.commands.basicv1.BasicSet cmd) {
     return result
 }
 
+def zwaveEvent(hubitat.zwave.commands.basicv2.BasicSet cmd, ev=0) {
+    if (logEnable) log.debug "---BASIC SET V2--- ${device.displayName} sent ${cmd}"
+	if (logEnable) log.debug "This does nothing in this driver, and can be ignored..."	
+
+	def result = []
+    return result
+}
+
 def zwaveEvent(hubitat.zwave.commands.associationv2.AssociationReport cmd) {
     if (logEnable) log.debug "---ASSOCIATION REPORT V2--- ${device.displayName} sent groupingIdentifier: ${cmd.groupingIdentifier} maxNodesSupported: ${cmd.maxNodesSupported} nodeId: ${cmd.nodeId} reportsToFollow: ${cmd.reportsToFollow}"
     if (cmd.groupingIdentifier == 3) {
@@ -190,6 +200,71 @@ def zwaveEvent(hubitat.zwave.commands.associationv2.AssociationReport cmd) {
 			zwave.associationV2.associationGet(groupingIdentifier: 3).format()
         }
     }
+}
+
+//These send commands to the device either a list or a single command
+void sendCommands(List<String> cmds, Long delay=400) {
+	//Calculate supervisionCheck delay based on how many commands
+	Integer packetsCount = supervisedPackets?."${device.id}"?.size()
+	if (packetsCount > 0) {
+		Integer delayTotal = (cmds.size() * delay) + 2000
+		logDebug "Setting supervisionCheck to ${delayTotal}ms | ${packetsCount} | ${cmds.size()} | ${delay}"
+		runInMillis(delayTotal, supervisionCheck, [data:1])
+	}
+
+	//Send the commands
+	sendHubCommand(new hubitat.device.HubMultiAction(delayBetween(cmds, delay), hubitat.device.Protocol.ZWAVE))
+}
+
+void sendCommands(String cmd) {
+    sendHubCommand(new hubitat.device.HubAction(cmd, hubitat.device.Protocol.ZWAVE))
+}
+
+//Secure and MultiChannel Encapsulate
+String secureCmd(String cmd) {
+	return zwaveSecureEncap(cmd)
+}
+
+String secureCmd(hubitat.zwave.Command cmd, ep=0) {
+	return zwaveSecureEncap(multiChannelEncap(cmd, ep))
+}
+
+//MultiChannel Encapsulate if needed
+//This is called from secureCmd or supervisionEncap, do not call directly
+String multiChannelEncap(hubitat.zwave.Command cmd, ep) {
+	//logTrace "multiChannelEncap: ${cmd} (ep ${ep})"
+	if (ep > 0) {
+		cmd = zwave.multiChannelV4.multiChannelCmdEncap(destinationEndPoint:ep).encapsulate(cmd)
+	}
+	return cmd.format()
+}
+
+void zwaveEvent(hubitat.zwave.commands.supervisionv1.SupervisionGet cmd, Integer ep=null) {
+	def encapsulatedCmd = cmd.encapsulatedCommand(commandClassVersions)
+	if (logEnable) log.trace("${cmd} --ENCAP-- ${encapsulatedCmd}")
+	
+	if (encapsulatedCmd) {
+        if (ep) {
+    		zwaveEvent(encapsulatedCmd, ep)
+        } else {
+    		zwaveEvent(encapsulatedCmd)
+        }
+	} else {
+		if (logEnable) log.warn("Unable to extract encapsulated cmd from $cmd")
+	}
+
+	sendCommands(
+        secureCmd(
+            zwave.supervisionV1.supervisionReport(
+                sessionID: cmd.sessionID, 
+                reserved: 0, 
+                moreStatusUpdates: false,
+                status: 0xFF,
+                duration: 0
+            ), 
+            ep
+        )
+    )
 }
 
 def zwaveEvent(hubitat.zwave.commands.configurationv2.ConfigurationReport cmd) {
@@ -235,8 +310,19 @@ def zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.ManufacturerSpecifi
 def zwaveEvent(hubitat.zwave.commands.versionv1.VersionReport cmd) {
 	def fw = "${cmd.applicationVersion}.${cmd.applicationSubVersion}"
 	updateDataValue("fw", fw)
-	if (logEnable) log.debug "---VERSION REPORT V1--- ${device.displayName} is running firmware version: $fw, Z-Wave version: ${cmd.zWaveProtocolVersion}.${cmd.zWaveProtocolSubVersion}"
+	if (logEnable) log.debug "---VERSION REPORT V1--- ${device.displayName} is running firmware version: ${fw}, Z-Wave version: ${cmd.zWaveProtocolVersion}.${cmd.zWaveProtocolSubVersion}"
 }
+
+def zwaveEvent(hubitat.zwave.commands.firmwareupdatemdv2.FirmwareMdReport cmd) { 
+    if (logEnable ) {
+        log.debug ("received Firmware Report")
+        log.debug "checksum:       ${cmd.checksum}"
+        log.debug "firmwareId:     ${cmd.firmwareId}"
+        log.debug "manufacturerId: ${cmd.manufacturerId}"
+    }
+    [:]
+}
+
 
 def zwaveEvent(hubitat.zwave.commands.hailv1.Hail cmd) {
 	if (logEnable) log.debug "Hail command received..."
@@ -245,6 +331,46 @@ def zwaveEvent(hubitat.zwave.commands.hailv1.Hail cmd) {
 
 def zwaveEvent(hubitat.zwave.commands.switchmultilevelv3.SwitchMultilevelReport cmd) {
 	if (logEnable) log.debug "---SwitchMultilevelReport V3---  ${device.displayName} sent ${cmd}"
+	def newType
+	
+	// check state.bin variable to see if event is digital or physical
+	if (state.bin == -1)
+	{
+		newType = "digital"
+	}
+	else
+	{
+		newType = "physical"
+	}
+	
+	// Reset state.bin variable
+	state.bin = 0
+	
+	if (cmd.value) {
+		sendEvent(name: "level", value: cmd.value, unit: "%", descriptionText: "$device.displayName is " + cmd.value + "%", type: "$newType")
+
+		// Update state.level
+		state.level = cmd.value
+
+		// Set switch status
+		//if (device.currentValue("switch") == "off") {
+			sendEvent(name: "switch", value: "on", descriptionText: "$device.displayName was turned on [$newType]", type: "$newType", isStateChange: true)
+			if (logDesc) log.info "$device.displayName was turned on [$newType]"
+
+		// info logging
+		if (logDesc) log.info "$device.displayName is " + cmd.value + "%"
+
+		//}
+	} else {
+		//if (device.currentValue("switch") == "on") {
+			sendEvent(name: "switch", value: "off", descriptionText: "$device.displayName was turned off [$newType]", type: "$newType", isStateChange: true)
+			if (logDesc) log.info "$device.displayName was turned off [$newType]"
+		//}
+	}
+}
+
+def zwaveEvent(hubitat.zwave.commands.switchmultilevelv4.SwitchMultilevelReport cmd, java.lang.Integer ep) {
+	if (logEnable) log.debug "---SwitchMultilevelReport V4---  ${device.displayName} sent cmd: ${cmd}, ep: ${ep}"
 	def newType
 	
 	// check state.bin variable to see if event is digital or physical
@@ -292,27 +418,92 @@ def zwaveEvent(hubitat.zwave.Command cmd) {
     log.warn "${device.displayName} received unhandled command: ${cmd}"
 }
 
+void zwaveEvent(hubitat.zwave.commands.centralscenev3.CentralSceneNotification cmd, ep=0){
+	if (state.lastSequenceNumber != cmd.sequenceNumber) {
+		state.lastSequenceNumber = cmd.sequenceNumber
+
+		if (logEnable) log.trace "${cmd} (ep ${ep})"
+
+		//Flip the sceneNumber if needed (per parameter setting)
+		if (settings.paramInverted) {
+			if (cmd.sceneNumber == 1) cmd.sceneNumber = 2
+			else if (cmd.sceneNumber == 2) cmd.sceneNumber = 1
+			if (logEnable) log.trace "Scene Reversed: ${cmd}"
+		}
+
+		Map scene = [name: "pushed", value: cmd.sceneNumber, descriptionText: "", type:"physical", isStateChange:true]
+		String actionType
+		String btnVal
+
+		switch (cmd.sceneNumber) {
+			case 1:
+				actionType = "up"
+				break
+			case 2:
+				actionType = "down"
+				break
+			default:
+				if (logEnable) log.debug "Unknown sceneNumber: ${cmd}"
+		}
+
+		switch (cmd.keyAttributes){
+			case 0:
+				btnVal = "${actionType} 1x"
+				break
+			case 1:
+				scene.name = "released"
+				btnVal = "${actionType} released"
+				break
+			case 2:
+				scene.name = "held"
+				btnVal = "${actionType} held"
+				break
+			case {it >=3 && it <= 6}:
+				if      (cmd.sceneNumber == 1) scene.value = (cmd.keyAttributes * 2) - 3
+				else if (cmd.sceneNumber == 2) scene.value = (cmd.keyAttributes * 2) - 2
+				btnVal = "${actionType} ${cmd.keyAttributes - 1}x"
+				break
+			default:
+				if (logEnable) log.debug "Unknown keyAttributes: ${cmd}"
+		}
+
+		if (actionType && btnVal) {
+			scene.descriptionText="button ${scene.value} ${scene.name} [${btnVal}]"
+			if (logDesc) log.info "${scene.descriptionText}"
+			sendEvent(scene)
+		}
+	}
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Driver Commands / Functions
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def on() {
 	if (logEnable) log.debug "Turn device ON"
-	//state.bin = -1
-	if (logEnable) log.debug "state.level is $state.level"
-	if (state.level == 0 || state.level == "") {state.level=99}
+	state.bin = -1
+	//if (logEnable) log.debug "state.level is $state.level"
+	//if (state.level == 0 || state.level == "") {state.level=99}
+    
 	//setLevel(state.level, 0)
+    
 	sendEvent(name: "switch", value: "on", descriptionText: "$device.displayName was turned on [digital]", type: "digital", isStateChange: true)
-	if (logDesc) log.info "$device.displayName was turned on [digital]"
-	if (logDesc) log.info "$device.displayName is " + state.level + "%"
+    
+	//if (logDesc) log.info "$device.displayName was turned on [digital]"
+	//if (logDesc) log.info "$device.displayName is " + state.level + "%"
+    
 	result = zwave.basicV1.basicSet(value: 0xFF).format()
 }
 
 def off() {
 	if (logEnable) log.debug "Turn device OFF"
-	//state.bin = -1
+	state.bin = -1
+    
 	//setLevel(0, 0)
+    
 	sendEvent(name: "switch", value: "off", descriptionText: "$device.displayName was turned off [digital]", type: "digital", isStateChange: true)
-    if (logDesc) log.info "$device.displayName was turned off [digital]"
+    
+    //if (logDesc) log.info "$device.displayName was turned off [digital]"
+    
 	result = zwave.basicV1.basicSet(value: 0x00).format()
 }
 
@@ -391,8 +582,6 @@ def doubleTap(BigDecimal buttonId) {
 		if (logEnable) log.debug "Doubletap Down Triggered"
 		if (logDesc) log.info "$device.displayName had Doubletap down (button 2) [digital]"
 	}
-
-	
 }
 
 def updated() {
